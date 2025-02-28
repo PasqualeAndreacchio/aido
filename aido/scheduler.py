@@ -8,18 +8,29 @@ import b2luigi
 import torch
 
 from aido.config import AIDOConfig
-from aido.interface import AIDOBaseUserInterface
+from aido.interface import UserInterfaceBase
 from aido.logger import logger
 from aido.plotting import Plotting
 from aido.simulation_helpers import SimulationParameterDictionary
+from aido.task import AIDOTask
 from aido.training import training_loop
 
 
-class SimulationTask(b2luigi.Task):
+class SimulationTask(AIDOTask):
     iteration = b2luigi.IntParameter()
     validation = b2luigi.BoolParameter()
     simulation_task_id = b2luigi.IntParameter()
+    num_simulation_tasks = b2luigi.IntParameter(significant=False)
     start_param_dict_filepath = b2luigi.PathParameter(hashed=True, significant=False)
+    results_dir = b2luigi.PathParameter(hashed=True, significant=False)
+
+    def requires(self):
+        if self.iteration > 0:
+            return OptimizationTask(
+                iteration=self.iteration - 1,
+                num_simulation_tasks=self.num_simulation_tasks,
+                results_dir=self.results_dir
+            )
 
     def output(self) -> Generator:
         yield self.add_to_output("param_dict.json")
@@ -45,34 +56,26 @@ class SimulationTask(b2luigi.Task):
         interface.simulate(output_parameter_dict_path, output_path)
 
 
-class ReconstructionTask(b2luigi.Task):
+class ReconstructionTask(AIDOTask):
     iteration = b2luigi.IntParameter()
     validation = b2luigi.BoolParameter()
     num_simulation_tasks = b2luigi.IntParameter(significant=False)
     start_param_dict_filepath = b2luigi.PathParameter(hashed=True, significant=False)
+    results_dir = b2luigi.PathParameter(hashed=True, significant=False)
 
     def requires(self) -> Generator:
-        """
-        Define dependencies for ReconstructionTask.
-        - Always requires SimulationTask instances.
-        - If validation=True, it also depends on the ReconstructionTask with validation=False.
-        """
         
         for i in range(self.num_simulation_tasks):
+            if self.validation is True and i >= 5:
+                break
             yield self.clone(
                 SimulationTask,
                 iteration=self.iteration,
                 validation=self.validation,
                 simulation_task_id=i,
-                start_param_dict_filepath=self.start_param_dict_filepath,
-            )
-
-        if self.validation:
-            yield ReconstructionTask(
-                iteration=self.iteration,
-                validation=False,
                 num_simulation_tasks=self.num_simulation_tasks,
                 start_param_dict_filepath=self.start_param_dict_filepath,
+                results_dir=self.results_dir
             )
 
     def output(self) -> Generator:
@@ -101,11 +104,11 @@ class ReconstructionTask(b2luigi.Task):
         interface.reconstruct(
             reco_input_path=self.get_output_file_name(f"{output_type}_input_df"),
             reco_output_path=self.get_output_file_name(f"{output_type}_output_df"),
-            isVal=self.validation
+            is_validation=self.validation
         )
 
-        
-class OptimizationTask(b2luigi.Task):
+
+class OptimizationTask(AIDOTask):
     """ This Task requires n='num_simulation_tasks' of StartSimulationTask before running. If the output of
     this Task exists, then it will be completely skipped.
     When running, it calls the user-provided 'interface.merge()' and 'interface.reconstruct' methods. The
@@ -113,38 +116,33 @@ class OptimizationTask(b2luigi.Task):
     """
     iteration = b2luigi.IntParameter()
     num_simulation_tasks = b2luigi.IntParameter(significant=False)
-    start_param_dict_filepath = b2luigi.PathParameter(hashed=True, significant=False)
+    num_validation_tasks = b2luigi.IntParameter(significant=False)
     results_dir = b2luigi.PathParameter(hashed=True, significant=False)
 
     def output(self) -> Generator:
-        """
-        Define the output files for the optimization task.
-        """
-        yield self.add_to_output("reco_paths_dict")
-        yield self.add_to_output("param_dict.json")
+        if self.iteration >= 0:
+            yield self.add_to_output("reco_paths_dict")
+            yield self.add_to_output("param_dict.json")
 
     def requires(self) -> Generator:
+        """ Starts the Reconstruction Tasks for regular reconstruction and for validation (the latter only
+        if 'num_validation_tasks' > 0).
         """
-        Define dependencies for OptimizationTask.
-        - Requires ReconstructionTask with validation=False and validation=True.
-        """
-        self.next_param_dict_file = f"{self.results_dir}/parameters/param_dict_iter_{self.iteration + 1}.json"
 
-        if not os.path.isfile(self.next_param_dict_file):
-        
+        def start_reconstruction_task(num_simulations: int):
             yield ReconstructionTask(
                 iteration=self.iteration,
-                validation=False,
+                validation=num_simulations,
                 num_simulation_tasks=self.num_simulation_tasks,
-                start_param_dict_filepath=self.start_param_dict_filepath,
+                start_param_dict_filepath=f"{self.results_dir}/parameters/param_dict_iter_{self.iteration}.json",
+                results_dir=self.results_dir,
             )
 
-            yield ReconstructionTask(
-                iteration=self.iteration,
-                validation=True,
-                num_simulation_tasks=self.num_simulation_tasks,
-                start_param_dict_filepath=self.start_param_dict_filepath,
-            )
+        if self.iteration < 0:
+            return None
+
+        start_reconstruction_task(self.num_validation_tasks) if self.num_validation_tasks else ...
+        start_reconstruction_task(self.num_simulation_tasks)
 
     def create_reco_path_dict(self) -> Dict:
 
@@ -156,10 +154,10 @@ class OptimizationTask(b2luigi.Task):
             "optimizer_model_previous_path": f"{self.results_dir}/models/optimizer_{self.iteration - 1}.pt",
             "surrogate_model_save_path": f"{self.results_dir}/models/surrogate_{self.iteration}.pt",
             "optimizer_model_save_path": f"{self.results_dir}/models/optimizer_{self.iteration}.pt",
-            "current_parameter_dict": str(self.start_param_dict_filepath),
+            "current_parameter_dict": f"{self.results_dir}/parameters/param_dict_iter_{self.iteration}.json",
             "next_parameter_dict": f"{self.results_dir}/parameters/param_dict_iter_{self.iteration + 1}.json",
             "reco_output_df": str(self.get_input_file_names("reco_output_df")[0]),
-            "validation_output_df": str(self.get_input_file_names("validation_output_df")[0]),
+            "validation_output_df": None,
             "optimizer_loss_save_path": f"{self.results_dir}/loss/optimizer/optimizer_loss_{self.iteration}",
             "constraints_loss_save_path": f"{self.results_dir}/loss/constraints/constraints_loss_{self.iteration}",
             "surrogate_loss_save_path": f"{self.results_dir}/loss/surrogate/surrogate_loss_{self.iteration}"
@@ -177,12 +175,11 @@ class OptimizationTask(b2luigi.Task):
         Next parameter dict is the location of the next iteration's parameter dict, if already exists, the
             whole Tasks is skipped. Otherwise, the updated parameter dict is saved in this location
         """
+        if self.iteration == -1:
+            return None
+
         self.reco_paths_dict = self.create_reco_path_dict()
         config = AIDOConfig.from_json(os.path.join(self.results_dir, "config.json"))
-
-        if os.path.isfile(self.next_param_dict_file):
-            logger.warning(f"Iteration {self.iteration} has an updated parameter dict already and will be skipped")
-            return None
 
         with open(self.reco_paths_dict["own_path"], "w") as file:
             json.dump(self.reco_paths_dict, file)
@@ -197,7 +194,7 @@ class OptimizationTask(b2luigi.Task):
                 new_param_dict = training_loop(
                     reco_file_paths_dict=self.reco_paths_dict["own_path"],
                     reconstruction_loss_function=interface.loss,
-                    constraints=interface.constraints
+                    constraints=interface.constraints,
                 )
             except torch.cuda.OutOfMemoryError as e:
                 training_loop_out_of_memory = True
@@ -221,34 +218,15 @@ class OptimizationTask(b2luigi.Task):
             logger.warning(f"The following Exception was raised during user-defined plotting:\n{e}")
 
 
-class AIDOMainTask(b2luigi.Task):
-    """ Trigger recursive calls for each Iteration
-    TODO Fix exit condition in 'run' method
-    TODO parameter results dir
-    TODO Unable to resume optimization because only condition is that iteration 0 worked
-    """
-    num_max_iterations = b2luigi.IntParameter(significant=False)
-    num_simulation_tasks = b2luigi.IntParameter(significant=False)
-    start_param_dict_filepath = b2luigi.PathParameter(hashed=True)
-    results_dir = b2luigi.PathParameter(hashed=True, significant=False)
-
-    def run(self) -> Generator:
-        for iteration in range(0, self.num_max_iterations):
-            yield OptimizationTask(
-                iteration=iteration,
-                num_simulation_tasks=self.num_simulation_tasks,
-                start_param_dict_filepath=f"{self.results_dir}/parameters/param_dict_iter_{iteration}.json",
-                results_dir=self.results_dir
-            )
-
-
 def start_scheduler(
         parameters: SimulationParameterDictionary,
-        user_interface: AIDOBaseUserInterface,
+        user_interface: UserInterfaceBase,
         simulation_tasks: int,
         max_iterations: int,
         threads: int,
-        results_dir: str | os.PathLike
+        results_dir: str | os.PathLike,
+        validation_tasks: int | None = None,
+        **kwargs,
         ):
     b2luigi.set_setting("result_dir", f"{results_dir}/task_outputs")
     os.makedirs(f"{results_dir}", exist_ok=True)
@@ -261,11 +239,7 @@ def start_scheduler(
     os.makedirs(f"{results_dir}/loss/optimizer", exist_ok=True)
     os.makedirs(f"{results_dir}/loss/constraints", exist_ok=True)
     os.makedirs(f"{results_dir}/loss/surrogate", exist_ok=True)
-    start_param_dict_filepath = f"{results_dir}/parameters/param_dict_iter_0.json"
-
-    AIDOConfig.from_json("config.json").to_json(os.path.join(results_dir, "config.json"))
-
-    parameters.to_json(start_param_dict_filepath)
+    parameters.to_json(f"{results_dir}/parameters/param_dict_iter_0.json")
 
     assert (
         parameters.get_current_values("list") != []
@@ -275,20 +249,24 @@ def start_scheduler(
         user_interface = user_interface()
 
     assert (
-        issubclass(type(user_interface), AIDOBaseUserInterface)
-    ), f"The class {user_interface} must inherit from {AIDOBaseUserInterface}."
+        issubclass(type(user_interface), UserInterfaceBase)
+    ), f"The class {user_interface} must inherit from {UserInterfaceBase}."
 
     global config
+    config = AIDOConfig.from_json("config.json")
+    config.to_json(os.path.join(results_dir, "config.json"))
+
     global interface  # Fix for b2luigi, as passing b2luigi.Parameter of non-serializable classes is not possible
     interface = user_interface
     interface.results_dir = results_dir
 
     b2luigi.process(
-        AIDOMainTask(
-            start_param_dict_filepath=start_param_dict_filepath,
+        OptimizationTask(
             num_simulation_tasks=simulation_tasks,
-            num_max_iterations=max_iterations,
+            num_validation_tasks=validation_tasks,
+            iteration=max_iterations - 1,
             results_dir=results_dir
         ),
         workers=threads,
+        **kwargs,
     )

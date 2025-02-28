@@ -4,8 +4,8 @@ import sys
 import pandas as pd
 import torch
 from reconstruction import Reconstruction, ReconstructionDataset
-from reconstruction_validation import ReconstructionValidation
 from torch.utils.data import Dataset
+from validation import ReconstructionValidation
 
 
 def pre_train(model: Reconstruction, dataset: Dataset, n_epochs: int):
@@ -26,7 +26,7 @@ def pre_train(model: Reconstruction, dataset: Dataset, n_epochs: int):
     model.to('cpu')
 
 
-def do_reco(
+def train(
         input_df_path: str | os.PathLike,
         output_df_path: str | os.PathLike,
         isVal: bool,
@@ -80,4 +80,4 @@ if __name__ == "__main__":
     output_df_path = sys.argv[2]
     isVal = sys.argv[3].strip().lower() == "true"
     results_dir = sys.argv[4]
-    do_reco(input_df_path, output_df_path, isVal, results_dir)
+    train(input_df_path, output_df_path, isVal, results_dir)

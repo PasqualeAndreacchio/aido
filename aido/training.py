@@ -12,7 +12,6 @@ from aido.logger import logger
 from aido.optimizer import Optimizer
 from aido.simulation_helpers import SimulationParameterDictionary
 from aido.surrogate import Surrogate, SurrogateDataset
-from aido.surrogate_validation import SurrogateValidation
 
 
 def pre_train(model: Surrogate, dataset: SurrogateDataset, n_epochs: int):
@@ -36,7 +35,7 @@ def pre_train(model: Surrogate, dataset: SurrogateDataset, n_epochs: int):
 def training_loop(
         reco_file_paths_dict: dict | str | os.PathLike,
         reconstruction_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-        constraints: None | Callable[[SimulationParameterDictionary], float | torch.Tensor] = None
+        constraints: None | Callable[[SimulationParameterDictionary], float | torch.Tensor] = None,
         ):
     
     if isinstance(reco_file_paths_dict, (str, os.PathLike)):
@@ -47,7 +46,6 @@ def training_loop(
 
     results_dir = reco_file_paths_dict["results_dir"]
     output_df_path = reco_file_paths_dict["reco_output_df"]
-    validation_df_path = reco_file_paths_dict["validation_output_df"]
     parameter_dict_input_path = reco_file_paths_dict["current_parameter_dict"]
     surrogate_previous_path = reco_file_paths_dict["surrogate_model_previous_path"]
     optimizer_previous_path = reco_file_paths_dict["optimizer_model_previous_path"]
@@ -80,40 +78,35 @@ def training_loop(
         surrogate.train_model(surrogate_dataset, batch_size=1024, n_epochs=n_epochs_main // 2, lr=0.005)
         surrogate_loss = surrogate.train_model(surrogate_dataset, batch_size=1024, n_epochs=n_epochs_main, lr=0.0003)
 
+        surrogate_lr = 0.001 * (1 if parameter_dict.iteration <= 50 else 0.5)
+
         while not surrogate.update_best_surrogate_loss(surrogate_loss):
             logger.info("Surrogate retraining")
             pre_train(surrogate, surrogate_dataset, config.surrogate.n_epoch_pre)
-            surrogate.train_model(surrogate_dataset, batch_size=256, n_epochs=n_epochs_main // 5, lr=0.005)
-            surrogate.train_model(surrogate_dataset, batch_size=1024, n_epochs=n_epochs_main // 2, lr=0.005)
-            surrogate.train_model(surrogate_dataset, batch_size=1024, n_epochs=n_epochs_main // 2, lr=0.0003)
+            surrogate.train_model(
+                surrogate_dataset,
+                batch_size=256,
+                n_epochs=n_epochs_main // 5,
+                lr=5 * surrogate_lr
+            )
+            surrogate.train_model(
+                surrogate_dataset,
+                batch_size=1024,
+                n_epochs=n_epochs_main // 2,
+                lr=1 * surrogate_lr
+            )
+            surrogate.train_model(
+                surrogate_dataset,
+                batch_size=1024,
+                n_epochs=n_epochs_main // 2,
+                lr=0.3 * surrogate_lr)
             surrogate_loss = surrogate.train_model(
                 surrogate_dataset,
                 batch_size=1024,
                 n_epochs=n_epochs_main // 2,
-                lr=0.0001,
+                lr=0.1 * surrogate_lr,
             )
-
-    logger.info("Surrogate Validation on Training Data")
-    surrogate_validator = SurrogateValidation(surrogate)
-    validation_df = surrogate_validator.validate(surrogate_dataset)
-    surrogate_validator.plot(
-        validation_df,
-        fig_savepath=os.path.join(results_dir, "plots", "validation","surrogate","on_trainingData"),
-        )
-
-    logger.info("Surrogate Validation")
-    surrogate_validation_dataset = SurrogateDataset(
-        pd.read_parquet(validation_df_path),
-        means=surrogate_dataset.means,
-        stds=surrogate_dataset.stds
-    )
-    surrogate_validator = SurrogateValidation(surrogate)
-    validation_df = surrogate_validator.validate(surrogate_validation_dataset)
-    surrogate_validator.plot(
-        validation_df,
-        fig_savepath=os.path.join(results_dir, "plots", "validation","surrogate","on_validationData"),
-        )
-
+    
     torch.save(surrogate, surrogate_save_path)
 
     # Optimization

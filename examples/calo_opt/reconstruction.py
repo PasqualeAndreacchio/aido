@@ -64,7 +64,6 @@ class ReconstructionDataset(Dataset):
         else:
             self.stds = stds
 
-        self.parameters = (self.parameters - self.means[0]) / self.stds[0]
         self.inputs = (self.inputs - self.means[1]) / self.stds[1]
         self.targets = (self.targets - self.means[2]) / self.stds[2]
         self.context = (self.context - self.means[3]) / self.stds[3]
@@ -158,7 +157,6 @@ class Reconstruction(torch.nn.Module):
             torch.nn.Linear(100, 100),
             torch.nn.ELU(),
             torch.nn.Linear(100, 100),
-            torch.nn.ReLU(),
             torch.nn.Linear(100, num_target_features),
         )
         self.optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
@@ -177,12 +175,8 @@ class Reconstruction(torch.nn.Module):
 
         Alternatively: 'torch.nn.MSELoss()(y_pred, y)**(1/2)'
         """
-        y = torch.where(torch.isnan(y_pred), torch.zeros_like(y) + 1., y)
-        y = torch.where(torch.isinf(y_pred), torch.zeros_like(y) + 1., y)
-        y_pred = torch.where(torch.isnan(y_pred), torch.zeros_like(y_pred), y_pred)
-        y_pred = torch.where(torch.isinf(y_pred), torch.zeros_like(y_pred), y_pred)
-
-        return ((y_pred - y)**2 / (torch.abs(y) + 1.))
+        y_den = torch.where(y > 1., y, torch.ones_like(y))
+        return (y_pred - y)**2 / y_den**2
 
     def train_model(self, dataset: ReconstructionDataset, batch_size: int, n_epochs: int, lr: float):
         print(f"Reconstruction Training: {lr=}, {batch_size=}")
@@ -201,7 +195,10 @@ class Reconstruction(torch.nn.Module):
                 x: torch.Tensor = x.to(self.device)
                 y: torch.Tensor = y.to(self.device)
                 y_pred: torch.Tensor = self(detector_parameters, x)
-                loss_per_event = self.loss(dataset.unnormalise_target(y), dataset.unnormalise_target(y_pred))
+                loss_per_event = self.loss(
+                    dataset.unnormalise_target(y),
+                    dataset.unnormalise_target(y_pred)
+                )
                 loss = loss_per_event.clone().mean()
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -234,7 +231,10 @@ class Reconstruction(torch.nn.Module):
             y: torch.Tensor = y.to(self.device)
             y_pred: torch.Tensor = self(detector_parameters, x)
 
-            loss_per_event = self.loss(dataset.unnormalise_target(y), dataset.unnormalise_target(y_pred))
+            loss_per_event = self.loss(
+                dataset.unnormalise_target(y),
+                dataset.unnormalise_target(y_pred)
+            )
             loss = loss_per_event.clone().mean()
             mean_loss += loss.item()
 

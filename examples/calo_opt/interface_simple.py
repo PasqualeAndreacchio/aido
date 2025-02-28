@@ -7,15 +7,23 @@ import torch
 import aido
 
 
-class AIDOUserInterfaceExample(aido.AIDOBaseUserInterface):
+class AIDOUserInterfaceExample(aido.UserInterfaceBase):
     """ This class is an example of how to implement the 'AIDOUserInterface' class.
+
+    We use the following container:
+
+        https://hub.docker.com/r/jkiesele/minicalosim
+
+    Download the container and add the file path to the variable 'container_path'
     """
 
     htc_global_settings = {}
+    container_path: str = ...  # place the path for the example container here
+    container_extra_flags: str = ""  # place extra flags for singularity here
 
     def simulate(self, parameter_dict_path: str, sim_output_path: str):
         os.system(
-            f"singularity exec -B /work,/ceph /ceph/kschmidt/singularity_cache/minicalosim_latest.sif python3 \
+            f"singularity exec {self.container_extra_flags} {self.container_path} python3 \
             examples/calo_opt/simulation.py {parameter_dict_path} {sim_output_path}"
         )
         return None
@@ -101,17 +109,16 @@ class AIDOUserInterfaceExample(aido.AIDOBaseUserInterface):
 
         df: pd.DataFrame = pd.concat(df_list, axis=0, ignore_index=True)
         df = df.fillna(0)
+        df = df.reset_index(drop=True)
         df.to_parquet(reco_input_path, index=range(len(df)))
         return None
 
-    def reconstruct(self, reco_input_path: str, reco_output_path: str, isVal: bool):
+    def reconstruct(self, reco_input_path: str, reco_output_path: str, is_validation: bool):
         """ Start your reconstruction algorithm from a local container.
-
-        TODO Change to the dockerhub version when deploying to production.
         """
         os.system(
-            f"singularity exec --nv -B /work,/ceph /ceph/kschmidt/singularity_cache/minicalosim_latest.sif python3 \
-            examples/calo_opt/reco_script.py {reco_input_path} {reco_output_path} {isVal} {self.results_dir}"
+            f"singularity exec --nv {self.container_extra_flags} {self.container_path} python3 \
+            examples/calo_opt/reco_script.py {reco_input_path} {reco_output_path} {is_validation} {self.results_dir}"
         )
         os.system("rm -f *.pkl")
         return None
@@ -122,9 +129,5 @@ class AIDOUserInterfaceExample(aido.AIDOBaseUserInterface):
 
         Alternatively: 'torch.nn.MSELoss()(y_pred, y)**(1/2)'
         """
-        y = torch.where(torch.isnan(y_pred), torch.zeros_like(y) + 1., y)
-        y = torch.where(torch.isinf(y_pred), torch.zeros_like(y) + 1., y)
-        y_pred = torch.where(torch.isnan(y_pred), torch.zeros_like(y_pred), y_pred)
-        y_pred = torch.where(torch.isinf(y_pred), torch.zeros_like(y_pred), y_pred)
-
-        return ((y_pred - y)**2 / (torch.abs(y) + 1.))
+        y_denominator = torch.where(y > 1., y, torch.ones_like(y))
+        return (y_pred - y)**2 / y_denominator**2

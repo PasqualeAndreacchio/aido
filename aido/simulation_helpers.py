@@ -90,7 +90,7 @@ class SimulationParameter:
             else:
                 assert (
                     sigma is None
-                ), "Unable to asign standard deviation to discrete or non-optimizable parameter."
+                ), "Unable to assign standard deviation to discrete or non-optimizable parameter."
 
         def check_cost() -> None:
             if cost is None:
@@ -153,11 +153,6 @@ class SimulationParameter:
 
     @property
     def current_value(self) -> Any:
-        if isinstance(self._current_value, float):
-            if self.max_value is not None and self._current_value > self.max_value:
-                return self.max_value
-            if self.min_value is not None and self._current_value < self.min_value:
-                return self.min_value
         return self._current_value
 
     @current_value.setter
@@ -439,7 +434,7 @@ class SimulationParameterDictionary:
 
         return self
 
-    def update_probabilities(self, probabilities_dict: dict):
+    def update_probabilities(self, probabilities_dict: dict[str, List | np.ndarray]):
         for key, value in probabilities_dict.items():
             assert (
                 key in self.parameter_dict.keys()

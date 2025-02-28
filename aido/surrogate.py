@@ -67,7 +67,7 @@ class SurrogateDataset(Dataset):
         
             ["Parameters", "Context", "Loss"]
 
-    TODO: Accomodate for discrete parameters
+    TODO: Accommodate for discrete parameters
     """
     def __init__(
             self,
@@ -78,7 +78,8 @@ class SurrogateDataset(Dataset):
             reconstructed_key: str = "Reconstructed",
             device: str = "cuda" if torch.cuda.is_available() else "cpu",
             means: List[np.float32] | None = None,
-            stds: List[np.float32] | None = None
+            stds: List[np.float32] | None = None,
+            normalise_parameters: bool = False,
             ):
         """
         Initializes the Surrogate model with the provided DataFrame and keys. All inputs must be
@@ -102,6 +103,7 @@ class SurrogateDataset(Dataset):
         self.context = self.df[context_key].to_numpy(np.float32)
         self.targets = self.df[target_key].to_numpy(np.float32)
         self.reconstructed = self.df[reconstructed_key].to_numpy(np.float32)
+        self.normalise_parameters = normalise_parameters
 
         self.shape: List[int] = (
             self.parameters.shape[1],
@@ -130,7 +132,9 @@ class SurrogateDataset(Dataset):
         self.c_means = [torch.tensor(a).to(device) for a in self.means]
         self.c_stds = [torch.tensor(a).to(device) for a in self.stds]
 
-        self.parameters = self.normalise_features(self.parameters, index=0)
+        if self.normalise_parameters:
+            logger.info("Normalized parameters")
+            self.parameters = self.normalise_features(self.parameters, index=0)
         self.context = self.normalise_features(self.context, index=1)
         self.targets = self.normalise_features(self.targets, index=2)
         self.reconstructed = self.normalise_features(self.reconstructed, index=2)
@@ -143,7 +147,11 @@ class SurrogateDataset(Dataset):
         df = df.dropna(axis=0, ignore_index=True)
         return df
 
-    def unnormalise_features(self, target: torch.Tensor | np.ndarray, index: int) -> torch.Tensor | np.ndarray:
+    def unnormalise_features(
+            self,
+            target: torch.Tensor | np.ndarray,
+            index: int
+            ) -> torch.Tensor | np.ndarray:
         ''' Return the physically meaningful target from the normalised target
         Index:
             0 -> Parameters
@@ -370,9 +378,9 @@ class Surrogate(torch.nn.Module):
                 self.optimizer.step()
 
             logger.info(
-                f"Surrogate Epoch: {epoch}\t",
-                f"Loss: {loss.item():.5f}\t",
-                f"Prediction: {self.sample_forward(parameters, context, targets).mean().item():.5f}\t",
+                f"Surrogate Epoch: {epoch}\t"
+                f"Loss: {loss.item():.5f}\t"
+                f"Prediction: {self.sample_forward(parameters, context, targets).mean().item():.5f}\t"
                 f"Reconstructed: {reconstructed.mean().item():.5f}",
             )
             self.surrogate_loss.append(loss.item())
@@ -409,7 +417,7 @@ class Surrogate(torch.nn.Module):
         for i_o in range(oversample):
 
             for batch_idx, (parameters, context, targets, _reconstructed) in enumerate(data_loader):
-                logger.info(f'Surrogate batch: {batch_idx} / {len(data_loader)}', end='\r')
+                logger.info(f'Surrogate batch: {batch_idx} / {len(data_loader)}')
                 parameters: torch.Tensor = parameters.to(self.device)
                 context: torch.Tensor = context.to(self.device)
                 targets: torch.Tensor = targets.to(self.device)

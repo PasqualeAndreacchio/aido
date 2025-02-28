@@ -73,7 +73,7 @@ class Optimizer(torch.nn.Module):
                 0.5 * torch.nn.ReLU()(parameter_box[:, 0] - parameters_continuous_tensor)**2
             )
             upper_boundary_loss = torch.mean(
-                0.5 * torch.nn.ReLU()(parameters_continuous_tensor - parameter_box[:, 1]**2)
+                0.5 * torch.nn.ReLU()(parameters_continuous_tensor - parameter_box[:, 1])**2
             )
             return lower_boundary_loss + upper_boundary_loss
         else:
@@ -99,9 +99,9 @@ class Optimizer(torch.nn.Module):
             epoch: int,
             batch_index: int,
             loss: float,
-            filepath: str | os.PathLike = "parameter_optimizer_df",
+            filepath: str | os.PathLike = "parameter_optimizer_df.parquet",
             ) -> None:
-        df = self.parameter_dict.to_df()
+        df = self.parameter_dict.to_df(display_discrete="as_probabilities")
         df["Epoch"] = epoch
         df["Batch"] = batch_index
         df["Surrogate_Prediction"] = loss
@@ -172,7 +172,7 @@ class Optimizer(torch.nn.Module):
             for batch_idx, (_parameters, context, targets, _reconstructed) in enumerate(data_loader):
                 context: torch.Tensor = context.to(self.device)
                 targets: torch.Tensor = targets.to(self.device)
-                parameters_batch: torch.Tensor = dataset.normalise_features(self.parameter_module(), index=0)
+                parameters_batch: torch.Tensor = self.parameter_module()
 
                 surrogate_output = self.surrogate_model.sample_forward(
                     parameters_batch,
@@ -192,7 +192,6 @@ class Optimizer(torch.nn.Module):
                 loss += constraints_loss
                 loss += self.boundaries()
 
-                self.optimizer.zero_grad()
                 loss.backward()
 
                 if np.isnan(loss.item()):
@@ -201,8 +200,10 @@ class Optimizer(torch.nn.Module):
                     return self.parameter_dict, False
 
                 self.optimizer.step()
+                self.optimizer.zero_grad()
 
                 self.parameter_dict.update_current_values(self.parameter_module.physical_values(format="dict"))
+                self.parameter_dict.update_probabilities(self.parameter_module.probabilities)
                 self.save_parameters(epoch, batch_idx, surrogate_loss_detached, parameter_optimizer_savepath)
 
                 epoch_loss += loss.item()

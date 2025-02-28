@@ -28,7 +28,7 @@ class OneHotEncoder(torch.nn.Module):
         self.discrete_values: list = parameter.discrete_values
         self.starting_value = torch.tensor(self.discrete_values.index(parameter.current_value))
         self.logits = torch.nn.Parameter(
-            torch.tensor(np.repeat(1.0 / len(self.discrete_values), len(self.discrete_values)), dtype=torch.float32),
+            torch.log(torch.tensor(parameter.probabilities, dtype=torch.float32)),
             requires_grad=True
         )
         self._cost = parameter.cost if parameter.cost is not None else 0.0
@@ -39,7 +39,7 @@ class OneHotEncoder(torch.nn.Module):
 
     @property
     def current_value(self) -> torch.Tensor:
-        """ Returns the index corresponding to highest scoring entry """
+        """ Returns the probability Tensor """
         return self.probabilities
 
     @property
@@ -49,11 +49,8 @@ class OneHotEncoder(torch.nn.Module):
 
     @property
     def probabilities(self) -> torch.Tensor:
-        """ Probabilities for each entry, with a minimal probability of 1%"""
-        probabilities = torch.nn.functional.softmax(self.logits, dim=0)
-        probabilities = torch.clamp(probabilities, min=0.01)
-        probabilities = probabilities / probabilities.sum(dim=-1, keepdim=True)
-        return probabilities
+        """ Probabilities for each entry"""
+        return torch.nn.functional.softmax(self.logits, dim=0)
 
     @property
     def cost(self) -> torch.Tensor:
@@ -80,13 +77,16 @@ class ContinuousParameter(torch.nn.Module):
             _cost (float): The cost associated with the parameter.
         """
         super().__init__()
-        self.starting_value = torch.tensor(parameter._current_value)
-        self.parameter = torch.nn.Parameter(self.starting_value.clone(), requires_grad=True)
-        self.min_value = parameter.min_value or -10E10
-        self.max_value = parameter.max_value or +10E10
-        self.boundaries = torch.tensor(np.array([self.min_value, self.max_value], dtype="float32"))
-        self._cost = parameter.cost if parameter.cost is not None else 0.0
         self.reset(parameter)
+        self.starting_value = torch.tensor(parameter.current_value)
+        self.parameter = torch.nn.Parameter(self.starting_value.clone(), requires_grad=True)
+        self.min_value = parameter.min_value if parameter.min_value is not None else -10E10
+        self.max_value = parameter.max_value if parameter.max_value is not None else +10E10
+        self.boundaries = torch.tensor(np.array([
+            (- self.sigma + self.min_value) / 1.1,
+            (self.sigma + self.max_value) / 1.1
+        ], dtype="float32"))
+        self._cost = parameter.cost if parameter.cost is not None else 0.0
 
     def reset(self, parameter: SimulationParameter):
         self.sigma = np.array(parameter.sigma)
@@ -128,6 +128,9 @@ class ParameterModule(torch.nn.ModuleDict):
     def values(self) -> Iterable[OneHotEncoder | ContinuousParameter]:
         return super().values()
 
+    def __getitem__(self, key: str) -> OneHotEncoder | ContinuousParameter:
+        return super().__getitem__(key)
+
     def __call__(self) -> torch.Tensor:
         return super().__call__()
 
@@ -151,6 +154,16 @@ class ParameterModule(torch.nn.ModuleDict):
             return [parameter.physical_value for parameter in self.values()]
         elif format == "dict":
             return {name: parameter.physical_value for name, parameter in self.items()}
+
+    @property
+    def probabilities(self) -> dict[str, np.ndarray]:
+        probability_dict = {}
+
+        for name, parameter in self.items():
+            if isinstance(parameter, OneHotEncoder):
+                probability_dict[name] = parameter.probabilities.detach().cpu().numpy()
+
+        return probability_dict
 
     @property
     def constraints(self) -> torch.Tensor:
