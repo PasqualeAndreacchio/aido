@@ -2,13 +2,16 @@ import os
 from typing import Dict
 
 import torch
-from calo_opt.interface_simple import AIDOUserInterfaceExample  # Import your derived class
+from calo_opt.interface import CaloOptInterface  # Import your derived class
 from calo_opt.plotting import CaloOptPlotting
 
 import aido
 
 
-class UIFullCalorimeter(AIDOUserInterfaceExample):
+class UIFullCalorimeter(CaloOptInterface):
+
+    container_path: str = "/ceph/kschmidt/singularity_cache/minicalosim_latest.sif"
+    container_extra_flags: str = "-B /work,/ceph"
 
     @classmethod
     def constraints(
@@ -55,15 +58,15 @@ class UIFullCalorimeter(AIDOUserInterfaceExample):
         return detector_length_penalty + max_cost_penalty
 
     def plot(self, parameter_dict: aido.SimulationParameterDictionary) -> None:
-        plotter = CaloOptPlotting(self.results_dir)
-        plotter.plot()
+        CaloOptPlotting(self.results_dir).plot()
         return None
 
 
 if __name__ == "__main__":
 
-    sigma = 2.5
-    min_value = 0.0
+    sigma: float = 2.5
+    min_value: float = 0.0
+    results_dir: str = "/work/kschmidt/aido/results_example"
     parameters = aido.SimulationParameterDictionary([
         aido.SimulationParameter("thickness_absorber_0", 9.030052185058594, min_value=min_value, sigma=sigma),
         aido.SimulationParameter("thickness_scintillator_0", 37.155208587646484, min_value=min_value, sigma=sigma),
@@ -114,20 +117,23 @@ if __name__ == "__main__":
             probabilities=[0.01, 0.99]
         ),
         aido.SimulationParameter("num_events", 400, optimizable=False),
-        aido.SimulationParameter("max_length", 150, optimizable=False),
-        aido.SimulationParameter("max_cost", 50_000, optimizable=False),
-        aido.SimulationParameter("full_calorimeter", True, optimizable=False)
+        aido.SimulationParameter("max_length", 200, optimizable=False),
+        aido.SimulationParameter("max_cost", 200_000, optimizable=False),
     ])
     aido.optimize(
         parameters=parameters,
         user_interface=UIFullCalorimeter,
         simulation_tasks=20,
-        max_iterations=30,
+        max_iterations=220,
         threads=20,
-        results_dir="result_example",
+        results_dir=results_dir,
         description="""
 Optimization of a sampling calorimeter with cost and length constraints.
-Includes the optimization of discrete parameters, specific plotting functions
+Includes the optimization of discrete parameters and specific plotting functions
 """
     )
     os.system("rm *.root")
+
+    plotter = CaloOptPlotting(results_dir)
+    plotter.mplstyle()
+    plotter.plot()

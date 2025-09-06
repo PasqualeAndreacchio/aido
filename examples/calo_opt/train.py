@@ -1,18 +1,24 @@
-# python3.9
+# flake8: noqa: E402
 import os
+import pathlib
 import sys
+from typing import Union
 
 import pandas as pd
 import torch
-from reconstruction import Reconstruction, ReconstructionDataset
 from torch.utils.data import Dataset
-from validation import ReconstructionValidation
+
+sys.path.append(os.path.abspath(pathlib.Path(__file__).parent.parent))
+
+from reconstruction.dataset import ReconstructionDataset
+from reconstruction.model import Reconstruction
+from reconstruction.validation_reconstruction import ReconstructionValidation
 
 
 def pre_train(model: Reconstruction, dataset: Dataset, n_epochs: int):
     """ Pre-train the  a given model
 
-    TODO Reconstruction results are normalized. In the future only expose the un-normalised ones,
+    TODO Reconstruction results are normalized. In the future only expose the un-normalized ones,
     but also requires adjustments to the surrogate dataset
     """
     
@@ -28,13 +34,13 @@ def pre_train(model: Reconstruction, dataset: Dataset, n_epochs: int):
 
 
 def train(
-        input_df_path: str,
-        output_df_path: str,
-        isVal: bool,
-        results_dir: str,
-        ):
+    input_df_path: Union[str, os.PathLike],
+    output_df_path: Union[str, os.PathLike],
+    isVal: bool,
+    results_dir: Union[str, os.PathLike],
+):
     simulation_df: pd.DataFrame = pd.read_parquet(input_df_path)
-     
+
     if isVal:
         reco_model: Reconstruction = torch.load(os.path.join(results_dir, "reco_model"))
         reco_dataset = ReconstructionDataset(simulation_df, means=reco_model.means, stds=reco_model.stds)

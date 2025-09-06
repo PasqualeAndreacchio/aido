@@ -1,5 +1,6 @@
 import glob
 import os
+import pathlib
 import re
 from typing import Iterable
 
@@ -18,6 +19,13 @@ class CaloOptPlotting:
 
     def __init__(self, results_dir: str | os.PathLike) -> None:
         self.results_dir = results_dir
+        self.reco_output_paths: str = glob.glob(
+            f"{results_dir}/task_outputs/iteration=*/validation=False/reco_output_df"
+        )
+
+    @staticmethod
+    def mplstyle() -> None:
+        plt.style.use(pathlib.Path(__file__).parent / "aido.mplstyle")
 
     @classmethod
     def add_plot_header(cls, ax: plt.Axes) -> plt.Axes:
@@ -32,7 +40,7 @@ class CaloOptPlotting:
             transform=ax.transAxes, fontsize=14, style='italic', va='top', ha='left'
         )
         plt.text(
-            0.01, 0.98,
+            0.015, 0.98,
             "Sampling Calorimeter\n"
             "50% photons and 50% pions\n"
             r"$20 \times 400$" + " MC Events / Iteration\n"
@@ -63,13 +71,12 @@ class CaloOptPlotting:
             )
 
         def plot_reco_loss_all() -> None:
-            dirs = glob.glob(f"{self.results_dir}/task_outputs/iteration=*/validation=False/reco_output_df")
             sampled_iterations = [0, 10, 20, 200]
             cmap = plt.get_cmap('coolwarm', len(sampled_iterations))
             fig, ax = plt.subplots()
             bins = np.linspace(0, 10, 100 + 1)
 
-            for file_name in dirs:
+            for file_name in self.reco_output_paths:
                 iteration = int(re.search(r"iteration=(\d+)", file_name).group(1))
                 if iteration in sampled_iterations:
                     plot_reco_loss(
@@ -114,13 +121,12 @@ class CaloOptPlotting:
             )
 
         def plot_energy_resolution_all() -> None:
-            dirs = glob.glob(f"{self.results_dir}/task_outputs/iteration=*/validation=False/reco_output_df")
             sampled_iterations = [0, 10, 20, 200]
             cmap = plt.get_cmap('coolwarm', len(sampled_iterations))
             fig, ax = plt.subplots()
             bins = np.linspace(-5, 5, 100 + 1)
 
-            for file_name in dirs:
+            for file_name in self.reco_output_paths:
                 iteration = int(re.search(r"iteration=(\d+)", file_name).group(1))
                 if iteration in sampled_iterations:
                     plot_energy_resolution_single(
@@ -146,14 +152,13 @@ class CaloOptPlotting:
         def plot_energy_resolution_first_and_last() -> None:
             fig, ax = plt.subplots()
             ax = self.add_plot_header(ax)
-            dirs = glob.glob(f"{self.results_dir}/task_outputs/iteration=*/validation=False/reco_output_df")
-            cmap = plt.get_cmap('coolwarm', len(dirs))
+            cmap = plt.get_cmap('coolwarm', len(self.reco_output_paths))
             bins = np.linspace(-20, 20, 80 + 1)
 
-            for file_name in dirs:
+            for file_name in self.reco_output_paths:
                 iteration = int(re.search(r"iteration=(\d+)", file_name).group(1))
 
-                if iteration == 0 or iteration == len(dirs) - 1:
+                if iteration == 0 or iteration == len(self.reco_output_paths) - 1:
                     df = pd.read_parquet(file_name)
                     e_rec = (df["Targets"] - df["Reconstructed"])
                     e_rec_binned, *_ = plt.hist(
@@ -171,7 +176,9 @@ class CaloOptPlotting:
             plt.savefig(os.path.join(self.results_dir, "plots/energy_resolution_first_and_last"))
             plt.close()
 
-        def plot_calorimeter_sideview() -> None:
+        def plot_calorimeter_sideview(
+            add_legend: bool = None,
+        ) -> None:
             df_list = []
             df_materials_list = []
             parameter_dir = os.path.join(self.results_dir, "parameters/")
@@ -219,9 +226,11 @@ class CaloOptPlotting:
                     )
                     bottom += df[column][i]
 
-            handles, labels = plt.gca().get_legend_handles_labels()
-            by_label = dict(zip(labels, handles))
-            plt.legend(by_label.values(), by_label.keys(), loc="upper right")
+            if add_legend:
+                handles, labels = plt.gca().get_legend_handles_labels()
+                by_label = dict(zip(labels, handles))
+                plt.legend(by_label.values(), by_label.keys(), loc="upper right")
+
             plt.ylabel("Longitudinal Calorimeter Composition [cm]")
             plt.xlabel("Iteration")
             plt.xlim(0, len(df))
@@ -250,16 +259,14 @@ class CaloOptPlotting:
             cbar2.ax.invert_yaxis()
             cbar2.ax.set_yticks([0, 1], labels=['PbWO4', 'Polystyrene'], rotation=90, va='center')  # Custom ticks
             plt.tight_layout()
-            plt.savefig(os.path.join(self.results_dir, "plots/calorimeter_sideview"))
+            plt.savefig(os.path.join(self.results_dir, "plots/calorimeter_sideview"), dpi=500)
             plt.close()
 
         def plot_energy_resolution_evolution(use_checkpoint: bool = False) -> None:
-                
-            dirs = glob.glob(f"{self.results_dir}/task_outputs/iteration=*/validation=False/reco_output_df")
-            e_rec_array = np.full(len(dirs), 0.0)
-            e_loss_best_array = np.full(len(dirs), 0.0)
+            e_rec_array = np.full(len(self.reco_output_paths), 0.0)
+            e_loss_best_array = np.full(len(self.reco_output_paths), 0.0)
 
-            for file_name in dirs:
+            for file_name in self.reco_output_paths:
                 iteration = int(re.search(r"iteration=(\d+)", file_name).group(1))
                 df = pd.read_parquet(file_name)[0:400]
                 e_rec: pd.Series = df["Reconstructed"]["true_energy"] - df["Targets"]["true_energy"]
@@ -277,11 +284,11 @@ class CaloOptPlotting:
             ax = self.add_plot_header(ax)
             plt.plot(
                 e_loss_best_array,
-                label="Mean Reconstruction Loss" + r"$\mathcal{L}_\text{reco}$",
+                label="Mean Reconstruction Loss " + r"($\mathcal{L}_\text{reco}$)",
             )
             plt.plot(
                 df_loss.rolling(window=30).mean(),
-                label="Optimizer Loss" + r"$\mathcal{L}'$"
+                label="Optimizer Loss " + r"($\mathcal{L}'$)"
             )
             plt.legend()
             plt.xlabel("Iteration")
@@ -289,7 +296,7 @@ class CaloOptPlotting:
             plt.xlim(0, len(e_rec_array))
             plt.yscale("log")
             plt.tight_layout()
-            plt.savefig(os.path.join(self.results_dir, "plots/energy_resolution_evolution"))
+            plt.savefig(os.path.join(self.results_dir, "plots/energy_resolution_evolution.pdf"))
             plt.close()
         
         def plot_constraints() -> None:
@@ -303,9 +310,8 @@ class CaloOptPlotting:
                         )
                 return cost
 
-            dirs = glob.glob(f"{self.results_dir}/task_outputs/iteration=*/validation=False/reco_output_df")
             cost_list = []
-            for i in range(len(dirs)):
+            for i in range(len(self.reco_output_paths)):
                 sim_param_dict = aido.SimulationParameterDictionary.from_json(
                     f"{self.results_dir}/parameters/param_dict_iter_{i}.json"
                 )
@@ -322,11 +328,22 @@ class CaloOptPlotting:
             plt.savefig(os.path.join(self.results_dir, "plots/cost_constraints"))
             plt.close()
 
+        if len(self.reco_output_paths) <= 1:
+            print(f"No task outputs found in '{self.results_dir}/task_outputs/'. Skipping plotting.")
+            return None
+
         plot_energy_resolution_all()
         plot_reco_loss_all()
         plot_energy_resolution_first_and_last()
         plot_energy_resolution_evolution()
         plot_calorimeter_sideview()
-        plot_constraints()
         plt.close("all")
         return None
+
+
+if __name__ == "__main__":
+    results_dir: str = ...
+
+    plotter = CaloOptPlotting(results_dir)
+    plotter.mplstyle()
+    plotter.plot()

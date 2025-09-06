@@ -79,7 +79,7 @@ class SurrogateDataset(Dataset):
             device: str = "cuda" if torch.cuda.is_available() else "cpu",
             means: List[np.float32] | None = None,
             stds: List[np.float32] | None = None,
-            normalise_parameters: bool = False,
+            normalize_parameters: bool = False,
             ):
         """
         Initializes the Surrogate model with the provided DataFrame and keys. All inputs must be
@@ -103,7 +103,7 @@ class SurrogateDataset(Dataset):
         self.context = self.df[context_key].to_numpy(np.float32)
         self.targets = self.df[target_key].to_numpy(np.float32)
         self.reconstructed = self.df[reconstructed_key].to_numpy(np.float32)
-        self.normalise_parameters = normalise_parameters
+        self.normalize_parameters = normalize_parameters
 
         self.shape: List[int] = (
             self.parameters.shape[1],
@@ -132,12 +132,13 @@ class SurrogateDataset(Dataset):
         self.c_means = [torch.tensor(a).to(device) for a in self.means]
         self.c_stds = [torch.tensor(a).to(device) for a in self.stds]
 
-        if self.normalise_parameters:
+        if self.normalize_parameters:
             logger.info("Normalized parameters")
-            self.parameters = self.normalise_features(self.parameters, index=0)
-        self.context = self.normalise_features(self.context, index=1)
-        self.targets = self.normalise_features(self.targets, index=2)
-        self.reconstructed = self.normalise_features(self.reconstructed, index=2)
+            self.parameters = self.normalize_features(self.parameters, index=0)
+
+        self.context = self.normalize_features(self.context, index=1)
+        self.targets = self.normalize_features(self.targets, index=2)
+        self.reconstructed = self.normalize_features(self.reconstructed, index=2)
         self.df = self.filter_infs_and_nans(self.df)
 
     def filter_infs_and_nans(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -147,12 +148,12 @@ class SurrogateDataset(Dataset):
         df = df.dropna(axis=0, ignore_index=True)
         return df
 
-    def unnormalise_features(
+    def unnormalize_features(
             self,
             target: torch.Tensor | np.ndarray,
             index: int
             ) -> torch.Tensor | np.ndarray:
-        ''' Return the physically meaningful target from the normalised target
+        ''' Return the physically meaningful target from the normalized target
         Index:
             0 -> Parameters
             1 -> Context
@@ -163,7 +164,7 @@ class SurrogateDataset(Dataset):
         elif isinstance(target, np.ndarray):
             return target * self.stds[index] + self.means[index]
 
-    def normalise_features(self, target: torch.Tensor | np.ndarray, index: int) -> torch.Tensor | np.ndarray:
+    def normalize_features(self, target: torch.Tensor | np.ndarray, index: int) -> torch.Tensor | np.ndarray:
         ''' Normalize a feature
         Index:
             0 -> Parameters
@@ -393,7 +394,7 @@ class Surrogate(torch.nn.Module):
             dataset: SurrogateDataset,
             batch_size: int,
             oversample: int = 1,
-            ):
+            ) -> torch.Tensor:
         """
         Applies the model to the given dataset in batches and returns the results.
 
@@ -403,8 +404,7 @@ class Surrogate(torch.nn.Module):
             oversample (int, optional): The number of times to oversample the dataset. Default is 1.
 
         Returns:
-            tuple: A tuple containing three elements:
-                - results (torch.Tensor): The surrogate model's predictions.
+            torch.Tensor: The surrogate model's predictions.
 
         Remarks: In most cases the resulting Tensor with sampled Data is not of importance, only the
             model weights.
@@ -423,7 +423,7 @@ class Surrogate(torch.nn.Module):
                 targets: torch.Tensor = targets.to(self.device)
 
                 reco_surrogate = self.sample_forward(parameters, context, targets)
-                reco_surrogate = dataset.unnormalise_features(reco_surrogate, index=2)
+                reco_surrogate = dataset.unnormalize_features(reco_surrogate, index=2)
 
                 start_inject_index = i_o * len(dataset) + batch_idx * batch_size
                 end_inject_index = i_o * len(dataset) + (batch_idx + 1) * batch_size
