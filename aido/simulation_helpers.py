@@ -12,7 +12,10 @@ config = AIDOConfig.from_json("config.json")
 
 
 class SimulationParameter:
-    """Base class for all parameters used in the simulation
+    """Base class for all parameters used in the simulation.
+    
+    A simulation parameter represents a single variable that can be optimized
+    during the simulation process.
     """
     def __init__(
             self,
@@ -29,30 +32,43 @@ class SimulationParameter:
             probabilities: Iterable[float] | None = None,
             cost: float | Iterable | None = None
             ):
-        """ Create a new Simulation Parameter
+        """Create a new Simulation Parameter.
 
-        Args
-        ----
-            name (str): The name of the parameter.
-            starting_value (Any): The starting value of the parameter.
-            current_value (Any, optional): The current value of the parameter. Defaults to None, in which case
-                it set to the starting value instead.
-            units (str, optional): The units of the parameter. Defaults to None.
-            optimizable (bool, optional): Whether the parameter is optimizable. Defaults to True.
-            min_value (float, optional): The minimum value of the parameter. Defaults to None.
-            max_value (float, optional): The maximum value of the parameter. Defaults to None.
-            sigma (float, optional): The standard deviation of the parameter. Defaults to 0.5 for continuous
+        Parameters
+        ----------
+        name : str
+            The name of the parameter.
+        starting_value : Any
+            The starting value of the parameter.
+        current_value : Any, optional
+            The current value of the parameter. Defaults to None, in which case
+            it set to the starting value instead.
+        units : str, optional
+            The units of the parameter. Defaults to None.
+        optimizable : bool, optional
+            Whether the parameter is optimizable. Defaults to True.
+        min_value : float, optional
+            The minimum value of the parameter. Defaults to None.
+        max_value : float, optional
+            The maximum value of the parameter. Defaults to None.
+        sigma : float, optional
+            The standard deviation of the parameter. Defaults to 0.5 for continuous
             (float) parameters and remains None otherwise.
-            sigma_mode (str, optional): Whether to set the sampling distribution standard deviation to sigma ("flat")
-                or scale sigma with the current value ("scale"). Defaults to "flat". If "sigma" is not defined,
-                this parameter has not action. Can be changed class-wide using the cls.set_sigma_mode() classmethod.
-            discrete_values (Iterable, optional): The allowed discrete values of the parameter. Defaults to None.
-            probabilities (Iterable[float], optional): A list of the same length as 'discrete_values' used to
-                sample from 'discrete_values', if set to None, an equally-distributed array is created.
-                Only for discrete parameters. Defaults to None
-            cost (float, Iterable, optional): A float that quantifies the cost per unit of this Parameter.
-                Defaults to None. For discrete parameters, this parameter must be an Iterable (e.g. list) of the
-                same length as 'discrete_values'.
+        sigma_mode : {"flat", "scale"}, optional
+            Whether to set the sampling distribution standard deviation to sigma ("flat")
+            or scale sigma with the current value ("scale"). Defaults to "flat". If "sigma"
+            is not defined, this parameter has no action. Can be changed class-wide using
+            the cls.set_sigma_mode() classmethod.
+        discrete_values : Iterable, optional
+            The allowed discrete values of the parameter. Defaults to None.
+        probabilities : Iterable[float], optional
+            A list of the same length as 'discrete_values' used to sample from
+            'discrete_values'. If set to None, an equally-distributed array is created.
+            Only for discrete parameters. Defaults to None.
+        cost : float or Iterable, optional
+            A float that quantifies the cost per unit of this Parameter.
+            Defaults to None. For discrete parameters, this parameter must be an
+            Iterable (e.g. list) of the same length as 'discrete_values'.
         """
         def check_boundaries() -> None:
             assert (
@@ -230,8 +246,9 @@ class SimulationParameterDictionary:
     """Dictionary containing all the parameters used by the simulation.
 
     Attributes:
-    parameter_list: List[Type[SimulationParameter]]
-    parameter_dict: Dict[str, Type[SimulationParameter]]
+    -----------
+        parameter_list: List[Type[SimulationParameter]]
+        parameter_dict: Dict[str, Type[SimulationParameter]]
 
     Provides simple methods to easily write and read with the json format. Instances of this
     class have the following methods, with additional options listed in the method's docstring
@@ -240,36 +257,48 @@ class SimulationParameterDictionary:
 
         - Indexing as a list (in the same order as given during instantiation) or as a dict
             using the parameter's 'name'. Also usable with list or dict comprehension.
+        
         - 'to_dict' returns a dict with the parameters also in a dict format. Alternatively,
             it returns a dict of 'SimulationParameter' (same as indexing this class by 'name')
             if you add the keyword argument 'serialized=False'.
+        
         - 'to_json' will write all data from this class to a specified .json file in a dict
             format.
+        
         - 'to_df' returns a pd.DataFrame of your parameters. More options are listed in the
             method's docstring.
+        
         - 'get_current_values' returns all the current values of each parameter in a list or
             dict format.
+        
         - 'get_probabilities' returns a dict whose values are the probabilities of each
             discrete parameter. More information about the usage of probabilities for one-hot
             encoded parameters is listed in the docstring of SimulationParameter.
 
       2. Instantiating this class from other objects:
+
         - 'from_dict' instantiates this class from a nested dict, where each entry is the dict
             representation of a SimulationParameter (which has a similar method)
-        - 'from_json' instantiates this class from a json file. Specially useful in the combination
+       
+         - 'from_json' instantiates this class from a json file. Specially useful in the combination
             with 'to_json' to transfer this class between programs.
 
       3. Changing the information stored:
-        - 'update_current_values' will change all the current values of the class provided a
+     
+           - 'update_current_values' will change all the current values of the class provided a
             simple dict [str, <update_value>].
-        - 'update_probabilities' does the same but with all the probabilities of the discrete
+    
+            - 'update_probabilities' does the same but with all the probabilities of the discrete
             parameters of the class.
-        - 'generate_new' will return a new instance of this class with new current values for each
+    
+            - 'generate_new' will return a new instance of this class with new current values for each
             parameter
 
       4. Properties:
-        - 'covariance' returns a diagonal matrix with the 'sigma' of every continuous parameter.
-        - 'metadata' returns additional information about this class such as its creation time,
+    
+            - 'covariance' returns a diagonal matrix with the 'sigma' of every continuous parameter.
+   
+             - 'metadata' returns additional information about this class such as its creation time,
             the current iteration of the optimization process and user-defined descriptions.
     """
 
@@ -307,14 +336,20 @@ class SimulationParameterDictionary:
         return len(self.parameter_list)
 
     def to_dict(self, serialized=True) -> Dict[str, SimulationParameter | Dict]:
-        """Converts the parameter list to a dictionary.
+        """Convert the parameter list to a dictionary.
 
-        :param serialized: A boolean indicating whether to return a Dict of SimulationParameters or
-            a Dict of Dict (by serializing each SimulationParameter in turn)
-            If False, the SimulationParameter objects will be included as is. This is used by this class to allow
-                dictionary-style access to the individual parameters\n
-        :return: A dictionary where the keys are the names of the SimulationParameter objects and the values are either
-            the serialized dictionaries or the SimulationParameter objects themselves.
+        Parameters
+        ----------
+        serialized : bool, default=True
+            If True, returns a Dict of Dict by serializing each SimulationParameter.
+            If False, returns a Dict of SimulationParameters, which is used by this class
+            to allow dictionary-style access to the individual parameters.
+
+        Returns
+        -------
+        Dict[str, Union[SimulationParameter, Dict]]
+            A dictionary where the keys are parameter names and the values are either
+            serialized dictionaries or SimulationParameter objects.
         """
         if serialized is False:
             parameter_dict = {parameter.name: parameter for parameter in self.parameter_list}
@@ -350,7 +385,7 @@ class SimulationParameterDictionary:
                 - 'default': Simply write the current value of the Parameter (default)
                 - 'as_probabilities': Write the probability of each category (from the list of available
                     discrete parameter).
-                - 'as_one_hot':Write the current value as a one-hot encoded array. All categories are set
+                - 'as_one_hot': Write the current value as a one-hot encoded array. All categories are set
                     to zero except for the 'current_value' which is set to one.
                     Ref. https://pytorch.org/docs/stable/generated/torch.nn.functional.one_hot.html
             types (str): Choose what kind of parameters will be added to the pd.DataFrame. All includes
@@ -527,19 +562,25 @@ class SimulationParameterDictionary:
             discrete_index: int | None = None,
             scaling_factor: float = 1.0
             ):
-        """
-        Generates a new set of values for each parameter, bounded by specified minimum and maximum
-        values for float parameters. For discrete parameters, the new value is randomly chosen from
-        the list of allowed values.
+        """Generates a new set of values for each parameter.
+        
+        Generates new values bounded by specified minimum and maximum values for float
+        parameters. For discrete parameters, the new value is randomly chosen from the
+        list of allowed values.
 
-        Args:
-        ----
-        rng_seed (int | None): Optional seed for the random number generator. If an integer is provided,
-            the random number generator is initialized with that seed to ensure reproducibility. If None,
-            a pseudo-random seed is generated by numpy.random.default_rng()
-        discrete_index (int | None): Optional indexing of the discrete parameters catergories in order to
-            ensure that a certain category is represented. If 'discrete_index' > len(parameter.discrete_values),
-            a random sampling is uses. Otherwise the chosen value is parameter.discrete_values['discrete_index']
+        Parameters
+        ----------
+        rng_seed : int or None, optional
+            Seed for the random number generator. If an integer is provided,
+            the random number generator is initialized with that seed to ensure
+            reproducibility. If None, a pseudo-random seed is generated.
+        discrete_index : int or None, optional
+            Optional indexing of the discrete parameters categories to ensure
+            that a certain category is represented. If 'discrete_index' >
+            len(parameter.discrete_values), random sampling is used. Otherwise
+            the chosen value is parameter.discrete_values['discrete_index'].
+        scaling_factor : float, default=1.0
+            Factor to scale the covariance matrix by when generating new values.
         """
 
         def generate_discrete(parameter: SimulationParameter):
